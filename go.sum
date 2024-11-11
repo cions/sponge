@@ -1,0 +1,4 @@
+github.com/cions/go-options v0.1.0 h1:gefssz0Q3Z6AhnjAz8RrA6Zxqa1QExUN5kngP9IUKvY=
+github.com/cions/go-options v0.1.0/go.mod h1:e5qKrqWSO1fRPJNdMUqYP9X1hsQOm3Gbtpg72thA/IQ=
+golang.org/x/sys v0.27.0 h1:wBqf8DvsY9Y/2P8gAfPDEYNuS30J4lPHJxXSb/nJZ+s=
+golang.org/x/sys v0.27.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
