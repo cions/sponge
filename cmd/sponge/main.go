@@ -1,4 +1,4 @@
-// Copyright (c) 2024 cions
+// Copyright (c) 2024-2025 cions
 // Licensed under the MIT License. See LICENSE for details.
 
 package main
@@ -84,18 +84,19 @@ func run(args []string) error {
 	}
 
 	_, err := options.Parse(opts, args)
-	if errors.Is(err, options.ErrHelp) {
+	switch {
+	case errors.Is(err, options.ErrHelp):
 		usage := strings.ReplaceAll(USAGE, "$NAME", NAME)
 		fmt.Print(usage)
 		return nil
-	} else if errors.Is(err, options.ErrVersion) {
+	case errors.Is(err, options.ErrVersion):
 		version := VERSION
 		if bi, ok := debug.ReadBuildInfo(); ok {
 			version = bi.Main.Version
 		}
 		fmt.Printf("%v %v\n", NAME, version)
 		return nil
-	} else if err != nil {
+	case err != nil:
 		return err
 	}
 
@@ -105,15 +106,16 @@ func run(args []string) error {
 	}
 
 	var w io.WriteCloser
-	if opts.Output == "-" {
+	switch {
+	case opts.Output == "-":
 		w = os.Stdout
-	} else if opts.Replace {
+	case opts.Replace:
 		f, err := NewFileReplacer(opts.Output, opts.Append)
 		if err != nil {
 			return err
 		}
 		w = f
-	} else {
+	default:
 		flags := os.O_WRONLY | os.O_CREATE
 		if opts.Append {
 			flags |= os.O_APPEND
@@ -128,8 +130,13 @@ func run(args []string) error {
 	}
 
 	if _, err := w.Write(data); err != nil {
-		err2 := w.Close()
-		return fmt.Errorf("write error: %w", errors.Join(err, err2))
+		var err2 error
+		if w2, ok := w.(interface{ Dispose() error }); ok {
+			err2 = w2.Dispose()
+		} else {
+			err2 = w.Close()
+		}
+		return errors.Join(err, err2)
 	}
 	if err := w.Close(); err != nil {
 		return err
@@ -141,6 +148,9 @@ func run(args []string) error {
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "%v: error: %v\n", NAME, err)
+		if errors.Is(err, options.ErrCmdline) {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }

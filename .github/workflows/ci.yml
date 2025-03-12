@@ -5,6 +5,9 @@ on: [ push, pull_request ]
 permissions:
   contents: write
 
+env:
+  APPNAME: "sponge"
+
 jobs:
   test:
     name: Test (${{ matrix.os }})
@@ -17,6 +20,7 @@ jobs:
     strategy:
       matrix:
         os:
+        - windows-latest
         - macos-latest
         - ubuntu-latest
 
@@ -37,19 +41,19 @@ jobs:
         jq -cn '[range(10)]' > test.json
 
         jq -c 'map(select(. < 5))' < test.json | ./sponge -r test.json
-        printf '[0,1,2,3,4]\n' > expected.json
+        jq -cn '[0,1,2,3,4]' > expected.json
         cmp test.json expected.json
 
         jq -c 'map(. * 2)' test.json | ./sponge -ar test.json
-        printf '[0,1,2,3,4]\n[0,2,4,6,8]\n' > expected.json
+        jq -cn '[0,1,2,3,4], [0,2,4,6,8]' > expected.json
         cmp test.json expected.json
 
         jq -c '[.[-1]]' test.json | ./sponge test.json
-        printf '[4]\n[8]\n' > expected.json
+        jq -cn '[4], [8]' > expected.json
         cmp test.json expected.json
 
         jq -cs 'map(.[])' test.json | ./sponge -a test.json
-        printf '[4]\n[8]\n[4,8]\n' > expected.json
+        jq -cn '[4], [8], [4,8]' > expected.json
         cmp test.json expected.json
 
   create-release:
@@ -65,12 +69,11 @@ jobs:
       release-name: ${{ steps.create-release.outputs.release-name }}
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
     - id: create-release
       name: Create GitHub Release
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_REPO: ${{ github.repository }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         RELEASE_NAME="${GITHUB_REF#refs/tags/}"
         gh release create --draft "${RELEASE_NAME}"
@@ -88,6 +91,7 @@ jobs:
     strategy:
       matrix:
         include:
+        - { GOOS: windows, GOARCH: amd64 }
         - { GOOS: darwin,  GOARCH: amd64 }
         - { GOOS: darwin,  GOARCH: arm64 }
         - { GOOS: linux,   GOARCH: amd64 }
@@ -106,19 +110,25 @@ jobs:
         GOOS: ${{ matrix.GOOS }}
         GOARCH: ${{ matrix.GOARCH }}
       run: |
-        go install -buildmode=pie -trimpath -ldflags "-bindnow -s" "github.com/${GITHUB_REPOSITORY}/cmd/sponge@${GITHUB_REF#refs/tags/}"
+        GIT_TAG="${GITHUB_REF#refs/tags/}"
+        VERSION="${GIT_TAG#v}"
+        ASSETDIR="${APPNAME}-${GOOS}-${GOARCH}-${VERSION}"
 
-        ASSETDIR="sponge-${GOOS}-${GOARCH}-${GITHUB_REF#refs/tags/v}"
+        go install -buildmode=pie -trimpath -ldflags "-bindnow -s" \
+          "github.com/${GITHUB_REPOSITORY}/cmd/${APPNAME}@${GIT_TAG}"
+
+        case "${GOOS}/${GOARCH}" in
+          "$(go env GOHOSTOS)/$(go env GOHOSTARCH)")
+            GOBIN="$(go env GOPATH)/bin"
+            ;;
+          *)
+            GOBIN="$(go env GOPATH)/bin/${GOOS}_${GOARCH}"
+            ;;
+        esac
+
         mkdir "${ASSETDIR}"
         cp LICENSE README.md "${ASSETDIR}"
-
-        if [[ "${GOOS}/${GOARCH}" == "$(go env GOHOSTOS)/$(go env GOHOSTARCH)" ]]; then
-          GOBIN="$(go env GOPATH)/bin"
-        else
-          GOBIN="$(go env GOPATH)/bin/${GOOS}_${GOARCH}"
-        fi
-        GOEXE="$(go env GOEXE)"
-        cp "${GOBIN}/sponge${GOEXE}" "${ASSETDIR}"
+        cp "${GOBIN}/${APPNAME}$(go env GOEXE)" "${ASSETDIR}"
 
         case "${GOOS}" in
           windows)
@@ -132,7 +142,8 @@ jobs:
         esac
     - name: Upload release asset
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_REPO: ${{ github.repository }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         RELEASE_NAME: ${{ needs.create-release.outputs.release-name }}
         ASSET_NAME: ${{ steps.build-release-asset.outputs.asset-name }}
       run: gh release upload "${RELEASE_NAME}" "${ASSET_NAME}"

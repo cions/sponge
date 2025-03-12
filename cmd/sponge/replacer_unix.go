@@ -1,4 +1,4 @@
-// Copyright (c) 2024 cions
+// Copyright (c) 2024-2025 cions
 // Licensed under the MIT License. See LICENSE for details.
 
 //go:build !windows
@@ -29,11 +29,12 @@ func NewFileReplacer(name string, appendMode bool) (io.WriteCloser, error) {
 		mode = fi.Mode().Perm()
 	}
 	dir, _ := filepath.Split(name)
-	try := 0
+
+	tries := 0
 	for {
 		tmpname := dir + randHex(8) + ".tmp"
 		f, err := os.OpenFile(tmpname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-		if try++; errors.Is(err, fs.ErrExist) && try < 10000 {
+		if tries++; errors.Is(err, fs.ErrExist) && tries < 10000 {
 			continue
 		} else if err != nil {
 			return nil, err
@@ -47,8 +48,8 @@ func NewFileReplacer(name string, appendMode bool) (io.WriteCloser, error) {
 				return nil, errors.Join(err, err2, err3)
 			}
 			if _, err := io.Copy(f, orig); err != nil {
-				err2 := f.Close()
-				err3 := orig.Close()
+				err2 := orig.Close()
+				err3 := f.Close()
 				err4 := os.Remove(tmpname)
 				return nil, errors.Join(err, err2, err3, err4)
 			}
@@ -68,11 +69,23 @@ func (f *FileReplacer) Write(p []byte) (int, error) {
 }
 
 func (f *FileReplacer) Close() error {
-	defer os.Remove(f.tmpname)
 	if err := f.file.Close(); err != nil {
-		return err
+		err2 := os.Remove(f.tmpname)
+		return errors.Join(err, err2)
 	}
 	if err := os.Rename(f.tmpname, f.name); err != nil {
+		err2 := os.Remove(f.tmpname)
+		return errors.Join(err, err2)
+	}
+	return nil
+}
+
+func (f *FileReplacer) Dispose() error {
+	if err := f.file.Close(); err != nil {
+		err2 := os.Remove(f.tmpname)
+		return errors.Join(err, err2)
+	}
+	if err := os.Remove(f.tmpname); err != nil {
 		return err
 	}
 	return nil
