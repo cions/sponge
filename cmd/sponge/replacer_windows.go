@@ -8,155 +8,149 @@ package main
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 
 	"golang.org/x/sys/windows"
 )
 
-const (
-	PointerSize = 32 << (^uintptr(0) >> 63)
-	maxRW       = 1 << 30 // 1 GiB
-)
+const PointerSize = 32 << (^uintptr(0) >> 63)
 
 type FileReplacer struct {
+	file    *os.File
 	handle  windows.Handle
 	name    string
 	tmpname string
 }
 
-func NewFileReplacer(name string, appendMode bool) (io.WriteCloser, error) {
-	if f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666); err == nil {
-		return f, err
+func createFile(name string, templatefile uintptr) (windows.Handle, error) {
+	wname, err := windows.UTF16FromString(name)
+	if err != nil {
+		panic("UTF16FromString: name contains a NUL byte")
+	}
+	return windows.CreateFile(
+		&wname[0],
+		windows.GENERIC_READ|windows.GENERIC_WRITE|windows.DELETE,
+		0,
+		nil,
+		windows.CREATE_NEW,
+		windows.FILE_ATTRIBUTE_NORMAL,
+		windows.Handle(templatefile),
+	)
+}
+
+func NewFileReplacer(name string, appendMode bool) (*FileReplacer, error) {
+	if handle, err := createFile(name, 0); err == nil {
+		file := os.NewFile(uintptr(handle), name)
+		return &FileReplacer{file, handle, name, name}, err
 	}
 
-	orig, err := os.Open(name)
+	original, err := os.Open(name)
 	if err != nil {
 		return nil, err
 	}
-	dir, _ := filepath.Split(name)
 
+	dir, _ := filepath.Split(name)
 	tries := 0
 	for {
 		tmpname := dir + randHex(8) + ".tmp"
-		wtmpname, err := windows.UTF16FromString(tmpname)
-		if err != nil {
-			panic(fmt.Sprintf("UTF16FromString: %v", err))
-		}
-
-		handle, err := windows.CreateFile(
-			&wtmpname[0],
-			windows.GENERIC_READ|windows.GENERIC_WRITE|windows.DELETE,
-			0,
-			nil,
-			windows.CREATE_NEW,
-			windows.FILE_ATTRIBUTE_NORMAL,
-			windows.Handle(orig.Fd()),
-		)
-		if tries++; errors.Is(err, fs.ErrExist) && tries < 10000 {
+		handle, err := createFile(tmpname, original.Fd())
+		if tries++; err == windows.ERROR_FILE_EXISTS && tries < 10000 {
 			continue
 		} else if err != nil {
 			err = &os.PathError{Op: "CreateFile", Path: tmpname, Err: err}
-			err2 := orig.Close()
+			err2 := original.Close()
 			return nil, errors.Join(err, err2)
 		}
-		f := &FileReplacer{handle, name, tmpname}
+		tmpfile := os.NewFile(uintptr(handle), tmpname)
+		replacer := &FileReplacer{tmpfile, handle, name, tmpname}
 
 		if appendMode {
-			if _, err := io.Copy(f, orig); err != nil {
-				err2 := orig.Close()
-				err3 := f.Remove()
-				err4 := f.CloseHandle()
-				return nil, errors.Join(err, err2, err3, err4)
+			if _, err := io.Copy(tmpfile, original); err != nil {
+				err2 := original.Close()
+				err3 := replacer.Remove()
+				return nil, errors.Join(err, err2, err3)
 			}
 		}
 
-		if err := orig.Close(); err != nil {
-			err2 := f.Remove()
-			err3 := f.CloseHandle()
-			return nil, errors.Join(err, err2, err3)
+		if err := original.Close(); err != nil {
+			err2 := replacer.Remove()
+			return nil, errors.Join(err, err2)
 		}
 
-		return f, nil
+		return replacer, nil
 	}
 }
 
+func (f *FileReplacer) File() *os.File {
+	return f.file
+}
+
+func (f *FileReplacer) Read(p []byte) (int, error) {
+	return f.file.Read(p)
+}
+
 func (f *FileReplacer) Write(p []byte) (int, error) {
-	var ntotal int
-	var n uint32
-	for len(p) != 0 {
-		b := p
-		if len(p) > maxRW {
-			b = b[:maxRW]
-		}
-		err := windows.WriteFile(f.handle, b, &n, nil)
-		ntotal += int(n)
-		if err != nil {
-			return ntotal, &os.SyscallError{Syscall: "WriteFile", Err: err}
-		}
-		p = p[n:]
-	}
-	return ntotal, nil
+	return f.file.Write(p)
+}
+
+func (f *FileReplacer) CloseHandle() error {
+	return f.file.Close()
 }
 
 func (f *FileReplacer) Rename(newname string) error {
 	wname, err := windows.UTF16FromString(newname)
 	if err != nil {
-		panic(fmt.Sprintf("UTF16FromString: %v", err))
+		panic("UTF16FromString: newname contains a NUL byte")
 	}
 
-	var (
-		fri   []byte
-		flags = windows.FILE_RENAME_REPLACE_IF_EXISTS |
-			windows.FILE_RENAME_POSIX_SEMANTICS |
-			windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE
-	)
-	switch PointerSize {
-	case 32:
-		fri = binary.LittleEndian.AppendUint32(fri, uint32(flags))
-		fri = binary.LittleEndian.AppendUint32(fri, 0)
-	case 64:
-		fri = binary.LittleEndian.AppendUint64(fri, uint64(flags))
-		fri = binary.LittleEndian.AppendUint64(fri, 0)
-	default:
-		panic(fmt.Sprintf("bad PointerSize: %v", PointerSize))
+	flags := windows.FILE_RENAME_REPLACE_IF_EXISTS
+	flags |= windows.FILE_RENAME_POSIX_SEMANTICS
+	flags |= windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE
+	fri := binary.LittleEndian.AppendUint32(nil, uint32(flags))
+
+	if PointerSize == 32 {
+		fri = binary.LittleEndian.AppendUint32(fri, 0) // RootDirectory
+	} else {
+		fri = binary.LittleEndian.AppendUint32(fri, 0) // padding
+		fri = binary.LittleEndian.AppendUint64(fri, 0) // RootDirectory
 	}
+
 	fri = binary.LittleEndian.AppendUint32(fri, 2*uint32(len(wname)-1))
 	fri, err = binary.Append(fri, binary.LittleEndian, wname)
 	if err != nil {
-		panic(fmt.Sprintf("encoding/binary.Append: %v", err))
+		panic(err.Error())
 	}
 
-	err = windows.SetFileInformationByHandle(f.handle, windows.FileRenameInfoEx, &fri[0], uint32(len(fri)))
+	err = windows.SetFileInformationByHandle(
+		f.handle, windows.FileRenameInfoEx, &fri[0], uint32(len(fri)))
 	if err != nil {
-		return &os.SyscallError{Syscall: "SetFileInformationByHandle(FileRenameInfoEx)", Err: err}
+		return &os.SyscallError{
+			Syscall: "SetFileInformationByHandle(FileRenameInfoEx)",
+			Err:     err,
+		}
 	}
+
 	return nil
 }
 
-func (f *FileReplacer) Remove() error {
+func (f *FileReplacer) Dispose() error {
 	fdi := []byte{1}
-	err := windows.SetFileInformationByHandle(f.handle, windows.FileDispositionInfo, &fdi[0], uint32(len(fdi)))
+	err := windows.SetFileInformationByHandle(
+		f.handle, windows.FileDispositionInfo, &fdi[0], uint32(len(fdi)))
 	if err != nil {
-		return &os.SyscallError{Syscall: "SetFileInformationByHandle(FileDispositionInfo)", Err: err}
-	}
-	return nil
-}
-
-func (f *FileReplacer) CloseHandle() error {
-	err := windows.CloseHandle(f.handle)
-	if err != nil {
-		return &os.SyscallError{Syscall: "CloseHandle", Err: err}
+		return &os.SyscallError{
+			Syscall: "SetFileInformationByHandle(FileDispositionInfo)",
+			Err:     err,
+		}
 	}
 	return nil
 }
 
 func (f *FileReplacer) Close() error {
 	if err := f.Rename(f.name); err != nil {
-		err2 := f.Remove()
+		err2 := f.Dispose()
 		err3 := f.CloseHandle()
 		return errors.Join(err, err2, err3)
 	}
@@ -166,13 +160,10 @@ func (f *FileReplacer) Close() error {
 	return nil
 }
 
-func (f *FileReplacer) Dispose() error {
-	if err := f.Remove(); err != nil {
-		err2 := f.CloseHandle()
-		return errors.Join(err, err2)
-	}
-	if err := f.CloseHandle(); err != nil {
-		return err
-	}
-	return nil
+func (f *FileReplacer) Remove() error {
+	err1 := f.Dispose()
+	err2 := f.CloseHandle()
+	return errors.Join(err1, err2)
 }
+
+var _ WriteCloseRemover = &FileReplacer{}
