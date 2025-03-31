@@ -40,7 +40,7 @@ jobs:
       run: |
         jq -cn '[range(10)]' > test.json
 
-        jq -c 'map(select(. < 5))' < test.json | ./sponge -r test.json
+        jq -c 'map(select(. < 5))' test.json | ./sponge -r test.json
         jq -cn '[0,1,2,3,4]' > expected.json
         cmp test.json expected.json
 
@@ -54,6 +54,38 @@ jobs:
 
         jq -cs 'map(.[])' test.json | ./sponge -a test.json
         jq -cn '[4], [8], [4,8]' > expected.json
+        cmp test.json expected.json
+    - name: Test sponge (with command)
+      shell: bash
+      run: |
+        jq -cn '[range(10)]' > test.json
+
+        ./sponge -r test.json -- jq -c 'map(select(. < 5))' test.json
+        jq -cn '[0,1,2,3,4]' > expected.json
+        cmp test.json expected.json
+
+        ./sponge -ar test.json -- jq -c 'map(. * 2)' test.json
+        jq -cn '[0,1,2,3,4], [0,2,4,6,8]' > expected.json
+        cmp test.json expected.json
+
+        ./sponge test.json -- jq -c '[.[-1]]' test.json
+        jq -cn '[4], [8]' > expected.json
+        cmp test.json expected.json
+
+        ./sponge -a test.json -- jq -cs 'map(.[])' test.json
+        jq -cn '[4], [8], [4,8]' > expected.json
+        cmp test.json expected.json
+
+        ./sponge -r test.json -- jq -cn '[range(10)], halt_error' || true
+        cmp test.json expected.json
+
+        ./sponge -ar test.json -- jq -cn '[range(10)], halt_error' || true
+        cmp test.json expected.json
+
+        ./sponge test.json -- jq -cn '[range(10)], halt_error' || true
+        cmp test.json expected.json
+
+        ./sponge -a test.json -- jq -cn '[range(10)], halt_error' || true
         cmp test.json expected.json
 
   create-release:
