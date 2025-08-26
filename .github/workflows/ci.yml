@@ -30,7 +30,7 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.23"
+        go-version: "1.24"
     - name: Build sponge
       env:
         CGO_ENABLED: "0"
@@ -134,7 +134,7 @@ jobs:
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.23"
+        go-version: "1.24"
     - id: build-release-asset
       name: Build release asset
       env:
