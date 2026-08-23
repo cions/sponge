@@ -1,8 +1,4 @@
-github.com/cions/go-options v0.2.1 h1:J2hGZQ32sbTxpLdZOaa0ZWkODF11Qkurm1XviU8vXNg=
-github.com/cions/go-options v0.2.1/go.mod h1:zs/5tnoAZnyXH9W/UH4i9an/boG4jC7MuJ/t0Tv89cI=
-github.com/cions/go-options v0.2.2 h1:+I2Tj4D0qn5NivUaujKvppHEziGXUtfzdV6lz0q7hS8=
-github.com/cions/go-options v0.2.2/go.mod h1:GpJwGM3siDMOrb/fkqtEU037EvTsJLs8LqDNWXeE2Xs=
-golang.org/x/sys v0.35.0 h1:vz1N37gP5bs89s7He8XuIYXpyY0+QlsKmzipCbUtyxI=
-golang.org/x/sys v0.35.0/go.mod h1:BJP2sWEmIv4KK5OTEluFJCKSidICx8ciO85XgH3Ak8k=
-golang.org/x/sys v0.42.0 h1:omrd2nAlyT5ESRdCLYdm3+fMfNFE/+Rf4bDIQImRJeo=
-golang.org/x/sys v0.42.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
+github.com/cions/go-options v0.2.3 h1:GgCx7LT6PaWoVmo7FJzj66LBqFCtEnTHy0utjZWY+Uw=
+github.com/cions/go-options v0.2.3/go.mod h1:bUI5887Qo/MyqMdPXaaX3li1bhTIcCzGsjqNjaueuUY=
+golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
+golang.org/x/sys v0.47.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=

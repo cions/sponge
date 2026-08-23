@@ -1,5 +1,5 @@
-// Copyright (c) 2024-2026 cions
-// Licensed under the MIT License. See LICENSE for details.
+// Copyright (c) 2024-2026 cions <cions@tuta.com>
+// SPDX-License-Identifier: MIT
 
 package main
 
@@ -189,14 +189,11 @@ func run(args []string) error {
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "%v: error: %v\n", NAME, err)
-
-		var ee *exec.ExitError
-		switch {
-		case errors.As(err, &ee):
-			os.Exit(ee.ExitCode())
-		case errors.Is(err, options.ErrCmdline):
+		if exiterr, ok := errors.AsType[*exec.ExitError](err); ok {
+			os.Exit(exiterr.ExitCode())
+		} else if errors.Is(err, options.ErrCmdline) {
 			os.Exit(2)
-		default:
+		} else {
 			os.Exit(1)
 		}
 	}
